@@ -6,7 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import com.example.essentialcomponents.layout.ScaffoldExample
 import com.example.essentialcomponents.ui.theme.EssentialComponentsTheme
-
+import com.example.essentialcomponents.text.TextExample
 
 
 class MainActivity : ComponentActivity() {
@@ -17,6 +17,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             EssentialComponentsTheme{
                 ScaffoldExample()
+                //TextExample()
             }
         }
     }

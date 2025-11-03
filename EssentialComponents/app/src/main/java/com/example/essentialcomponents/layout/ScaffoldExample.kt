@@ -23,15 +23,6 @@ import androidx.compose.ui.unit.dp
 
 
 
-@Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        style = MaterialTheme.typography.headlineMedium,
-        modifier = modifier
-    )
-}
-
 @SuppressLint("NotConstructor")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -71,4 +62,13 @@ fun ScaffoldExample() {
             }
         }
     }
+}
+
+@Composable
+fun Greeting(name: String, modifier: Modifier = Modifier) {
+    Text(
+        text = "Hello $name!",
+        style = MaterialTheme.typography.headlineMedium,
+        modifier = modifier
+    )
 }
