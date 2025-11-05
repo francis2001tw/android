@@ -30,6 +30,9 @@ import com.example.essentialcomponents.button.ExtendedFloatingActionButtonExampl
 import com.example.essentialcomponents.button.FilledTonalButtonExample
 import com.example.essentialcomponents.selection.CheckboxExample
 import com.example.essentialcomponents.selection.SwitchExample
+import com.example.essentialcomponents.selection.RadioButtonExample
+import com.example.essentialcomponents.selection.SliderExample
+import com.example.essentialcomponents.selection.RangeSliderExample
 
 class MainActivity : ComponentActivity() {
 
@@ -70,8 +73,12 @@ class MainActivity : ComponentActivity() {
                 //ExtendedFloatingActionButtonExample()
                 //FilledTonalButtonExample()
 
+                //<< Selection Components >>
                 //CheckboxExample()
-                SwitchExample()
+                //SwitchExample()
+                //RadioButtonExample()
+                //SliderExample()
+                RangeSliderExample()
             }
         }
     }
