@@ -21,8 +21,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
-
-
 @SuppressLint("NotConstructor")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,7 +35,7 @@ fun ScaffoldExample() {
                     titleContentColor = MaterialTheme.colorScheme.primary,
                 ),
                 title = {
-                    Text("Hello Frank")
+                    Text("Hello Android")
                 }
             )
         }
@@ -49,7 +47,6 @@ fun ScaffoldExample() {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Greeting(name = "Android")
             Text(
                 modifier = Modifier.padding(top = 16.dp),
                 text = "Button pressed $presses times"
@@ -62,13 +59,4 @@ fun ScaffoldExample() {
             }
         }
     }
-}
-
-@Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        style = MaterialTheme.typography.headlineMedium,
-        modifier = modifier
-    )
 }
