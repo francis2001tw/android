@@ -1,4 +1,4 @@
-package com.example.essentialcomponents.chips
+package com.example.essentialcomponents.chip
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column

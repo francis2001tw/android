@@ -1,4 +1,4 @@
-package com.example.essentialcomponents.chips
+package com.example.essentialcomponents.chip
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement

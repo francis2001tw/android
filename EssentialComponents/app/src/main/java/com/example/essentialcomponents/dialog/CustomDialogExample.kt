@@ -1,4 +1,4 @@
-package com.example.essentialcomponents.dialogs
+package com.example.essentialcomponents.dialog
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
