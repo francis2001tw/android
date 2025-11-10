@@ -1,0 +1,10 @@
+C:\Users\frank\Nutstore\1\Today\SideProject\PUBLICATION\android\UniversalChatModule\src\main\kotlin\com\universalchat\model\Message.kt
+C:\Users\frank\Nutstore\1\Today\SideProject\PUBLICATION\android\UniversalChatModule\src\main\kotlin\com\universalchat\service\ChatServiceImpl.kt
+C:\Users\frank\Nutstore\1\Today\SideProject\PUBLICATION\android\UniversalChatModule\src\main\kotlin\com\universalchat\service\ChatService.kt
+C:\Users\frank\Nutstore\1\Today\SideProject\PUBLICATION\android\UniversalChatModule\src\main\kotlin\com\universalchat\provider\Provider.kt
+C:\Users\frank\Nutstore\1\Today\SideProject\PUBLICATION\android\UniversalChatModule\src\main\kotlin\com\universalchat\provider\QwenProvider.kt
+C:\Users\frank\Nutstore\1\Today\SideProject\PUBLICATION\android\UniversalChatModule\src\main\kotlin\com\universalchat\model\Model.kt
+C:\Users\frank\Nutstore\1\Today\SideProject\PUBLICATION\android\UniversalChatModule\src\main\kotlin\com\universalchat\storage\SettingsStore.kt
+C:\Users\frank\Nutstore\1\Today\SideProject\PUBLICATION\android\UniversalChatModule\src\main\kotlin\com\universalchat\repository\ConversationRepository.kt
+C:\Users\frank\Nutstore\1\Today\SideProject\PUBLICATION\android\UniversalChatModule\src\main\kotlin\com\universalchat\Main.kt
+C:\Users\frank\Nutstore\1\Today\SideProject\PUBLICATION\android\UniversalChatModule\src\main\kotlin\com\universalchat\model\Conversation.kt
