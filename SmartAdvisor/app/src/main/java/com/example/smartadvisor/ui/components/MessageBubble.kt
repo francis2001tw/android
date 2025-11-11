@@ -1,14 +1,21 @@
 package com.example.smartadvisor.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -16,8 +23,22 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,15 +51,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import kotlin.math.abs
-import kotlin.math.sin
 import com.example.smartadvisor.model.Message
 import com.example.smartadvisor.model.MessagePart
 import com.example.smartadvisor.model.MessageRole
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.datetime.Clock
-import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.DurationUnit
 
@@ -53,8 +71,11 @@ fun MessageBubble(
     // Extract reasoning parts - DON'T use remember, we want it to update every time
     val reasoningParts = message.parts.filterIsInstance<MessagePart.Reasoning>()
 
-    // Debug: Log when MessageBubble recomposes
-    android.util.Log.d("MessageBubble", "Rendering message ${message.id}, reasoning parts: ${reasoningParts.size}, content length: ${reasoningParts.firstOrNull()?.reasoning?.length ?: 0}")
+    // Debug: Log when MessageBubble recomposes (只記錄 AI 消息)
+    if (!isUser && reasoningParts.isNotEmpty()) {
+        val reasoningLength = reasoningParts.firstOrNull()?.reasoning?.length ?: 0
+        android.util.Log.d("MessageBubble", "💬 Rendering AI message, reasoning=$reasoningLength chars")
+    }
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -64,7 +85,8 @@ fun MessageBubble(
         // First, display Reasoning parts (full width, outside bubble)
         reasoningParts.forEachIndexed { index, reasoning ->
             // Use key to force recomposition when reasoning content changes
-            key(message.id, index, reasoning.reasoning.length) {
+            // Include reasoning length in key to ensure updates trigger recomposition
+            key(message.id, index, reasoning.reasoning.length, reasoning.reasoning.hashCode(), reasoning.finishedAt) {
                 DeepThinkingCard(
                     reasoning = reasoning,
                     modifier = Modifier.fillMaxWidth()
@@ -191,13 +213,18 @@ fun DeepThinkingCard(
     val scrollState = rememberScrollState()
     val loading = reasoning.finishedAt == null
 
-    // Debug: Log reasoning content length
-    android.util.Log.d("DeepThinkingCard", "Reasoning content length: ${reasoning.reasoning.length}, loading: $loading")
+    // Debug: Log reasoning content length EVERY time this composable is called
+    android.util.Log.d("DeepThinkingCard", "🧠 DeepThinkingCard recompose: ${reasoning.reasoning.length} chars, loading=$loading")
 
     // Auto-expand when loading, auto-scroll to bottom
+    // 使用 LaunchedEffect 觀察 reasoning.reasoning 的變化（與 rikkahub 一致）
     LaunchedEffect(reasoning.reasoning, loading) {
         if (loading) {
-            if (!expandState.expanded) expandState = ReasoningCardState.Preview
+            if (!expandState.expanded) {
+                expandState = ReasoningCardState.Preview
+            }
+            // 滾動到底部，確保新內容可見 - 使用 delay 确保布局完成
+            kotlinx.coroutines.delay(50)
             scrollState.animateScrollTo(scrollState.maxValue)
         } else {
             // Auto-collapse when finished (you can change this behavior)
@@ -284,14 +311,23 @@ fun DeepThinkingCard(
                         }
                     }
 
-                    // Progress indicator: character count
-                    if (loading && reasoning.reasoning.isNotEmpty()) {
-                        Text(
-                            text = "${reasoning.reasoning.length} characters generated...",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                    } else if (!loading && reasoning.reasoning.isNotEmpty()) {
+                    // Progress indicator: character count or waiting message
+                    if (loading) {
+                        if (reasoning.reasoning.isEmpty()) {
+                            Text(
+                                text = "Waiting for response...",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                modifier = Modifier.shimmer(true)
+                            )
+                        } else {
+                            Text(
+                                text = "${reasoning.reasoning.length} characters generated...",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
+                    } else if (reasoning.reasoning.isNotEmpty()) {
                         Text(
                             text = "Completed • ${reasoning.reasoning.length} characters",
                             style = MaterialTheme.typography.labelSmall,
@@ -324,78 +360,85 @@ fun DeepThinkingCard(
             }
 
             // Thinking content (expandable)
-            if (expandState.expanded && reasoning.reasoning.isNotEmpty()) {
+            // 在第一個回傳數據之前顯示 "Waiting for response..."，收到數據後顯示內容
+            if (expandState.expanded) {
                 HorizontalDivider(
                     modifier = Modifier.padding(vertical = 4.dp),
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                 )
 
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .let {
-                            if (expandState == ReasoningCardState.Preview) {
-                                it
-                                    .graphicsLayer { alpha = 0.99f }
-                                    .drawWithCache {
-                                        val brush = Brush.verticalGradient(
-                                            startY = 0f,
-                                            endY = size.height,
-                                            colorStops = arrayOf(
-                                                0.0f to Color.Transparent,
-                                                (fadeHeight / size.height) to Color.Black,
-                                                (1 - fadeHeight / size.height) to Color.Black,
-                                                1.0f to Color.Transparent
+                // 使用 key 確保內容變化時重組
+                key(reasoning.reasoning) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .let {
+                                if (expandState == ReasoningCardState.Preview) {
+                                    it
+                                        .graphicsLayer { alpha = 0.99f }
+                                        .drawWithCache {
+                                            val brush = Brush.verticalGradient(
+                                                startY = 0f,
+                                                endY = size.height,
+                                                colorStops = arrayOf(
+                                                    0.0f to Color.Transparent,
+                                                    (fadeHeight / size.height) to Color.Black,
+                                                    (1 - fadeHeight / size.height) to Color.Black,
+                                                    1.0f to Color.Transparent
+                                                )
                                             )
-                                        )
-                                        onDrawWithContent {
-                                            drawContent()
-                                            drawRect(
-                                                brush = brush,
-                                                size = Size(size.width, size.height),
-                                                blendMode = BlendMode.DstIn
-                                            )
+                                            onDrawWithContent {
+                                                drawContent()
+                                                drawRect(
+                                                    brush = brush,
+                                                    size = Size(size.width, size.height),
+                                                    blendMode = BlendMode.DstIn
+                                                )
+                                            }
                                         }
-                                    }
-                                    .heightIn(max = 150.dp)  // 增加预览高度
-                                    .verticalScroll(scrollState)
-                            } else {
-                                it.verticalScroll(scrollState)
-                                    .heightIn(max = 400.dp)  // 限制最大高度
+                                        .heightIn(max = 150.dp)
+                                        .verticalScroll(scrollState)
+                                } else {
+                                    it.verticalScroll(scrollState)
+                                        .heightIn(max = 400.dp)
+                                }
+                            }
+                            .padding(8.dp)
+                    ) {
+                        if (reasoning.reasoning.isEmpty() && loading) {
+                            // 在第一個回傳數據之前顯示 "Waiting for response..."
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = "Waiting for response...",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        } else {
+                            // 顯示實時累加的推理內容
+                            SelectionContainer {
+                                Text(
+                                    text = reasoning.reasoning,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * 1.5
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
                             }
                         }
-                        .padding(8.dp)
-                ) {
-                    SelectionContainer {
-                        Text(
-                            text = reasoning.reasoning,
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * 1.5  // 增加行高
-                            ),
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
                     }
-                }
-            } else if (expandState.expanded && reasoning.reasoning.isEmpty() && loading) {
-                // 显示加载占位符
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = "Waiting for response...",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 }
             }
         }

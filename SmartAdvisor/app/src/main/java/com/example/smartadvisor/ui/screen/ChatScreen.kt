@@ -24,7 +24,6 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.smartadvisor.model.Message
 import com.example.smartadvisor.service.GenerationChunk
@@ -37,36 +36,27 @@ import java.io.File
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
-    viewModel: ChatViewModel = viewModel()
+    viewModel: ChatViewModel = viewModel(),
+    onNavigateToDebugLog: () -> Unit = {}
 ) {
-    // 使用 remember + mutableStateOf 代替 collectAsStateWithLifecycle
-    var messages by remember { mutableStateOf<List<com.example.smartadvisor.model.Message>>(emptyList()) }
-    var messagesVersion by remember { mutableStateOf(0) }
-    val isGenerating by viewModel.isGenerating.collectAsStateWithLifecycle()
-    val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+    // 使用 collectAsState() 代替手動 LaunchedEffect + collect
+    // 這樣可以確保每次 Flow emit 都會觸發 recomposition
+    val messages by viewModel.messages.collectAsState(initial = emptyList())
+    val messagesVersion by viewModel.messagesVersion.collectAsState(initial = 0)
+    val isGenerating by viewModel.isGenerating.collectAsState()
+    val errorMessage by viewModel.errorMessage.collectAsState()
 
-    // 使用 LaunchedEffect 手动收集 Flow
-    LaunchedEffect(Unit) {
-        viewModel.messages.collect { newMessages ->
-            android.util.Log.d("ChatScreen", "Received messages update: ${newMessages.size} messages")
-            messages = newMessages
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        viewModel.messagesVersion.collect { newVersion ->
-            android.util.Log.d("ChatScreen", "Received version update: $newVersion")
-            messagesVersion = newVersion
-        }
+    // 添加 log 來追蹤收集到的值
+    LaunchedEffect(messages.size, messagesVersion) {
+        val lastReasoning = messages.lastOrNull()?.parts?.filterIsInstance<com.example.smartadvisor.model.MessagePart.Reasoning>()
+            ?.firstOrNull()?.reasoning?.length ?: 0
+        android.util.Log.d("ChatScreen", "📥 Collected: ${messages.size} messages, version=$messagesVersion, last reasoning=$lastReasoning chars")
     }
 
     // 添加日志来追踪 Compose 重组
-    android.util.Log.d("ChatScreen", "ChatScreen recomposed, messages size: ${messages.size}, version: $messagesVersion")
-    messages.forEachIndexed { index, message ->
-        val reasoningLength = message.parts.filterIsInstance<com.example.smartadvisor.model.MessagePart.Reasoning>()
-            .firstOrNull()?.reasoning?.length ?: 0
-        android.util.Log.d("ChatScreen", "  Message[$index] in Compose: id=${message.id.take(8)}, reasoning=$reasoningLength")
-    }
+    val lastReasoning = messages.lastOrNull()?.parts?.filterIsInstance<com.example.smartadvisor.model.MessagePart.Reasoning>()
+        ?.firstOrNull()?.reasoning?.length ?: 0
+    android.util.Log.d("ChatScreen", "🎨 Recomposed: ${messages.size} messages, version=$messagesVersion, last reasoning=$lastReasoning chars")
 
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -110,20 +100,7 @@ fun ChatScreen(
                             text = { Text("View Debug Log") },
                             onClick = {
                                 showMenu = false
-                                // 分享日志文件
-                                val logFile = LogManager.getLogFile(context)
-                                if (logFile.exists()) {
-                                    val uri = FileProvider.getUriForFile(
-                                        context,
-                                        "${context.packageName}.fileprovider",
-                                        logFile
-                                    )
-                                    val intent = Intent(Intent.ACTION_VIEW).apply {
-                                        setDataAndType(uri, "text/plain")
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    }
-                                    context.startActivity(Intent.createChooser(intent, "View Log"))
-                                }
+                                onNavigateToDebugLog()
                             }
                         )
                         DropdownMenuItem(
@@ -210,20 +187,19 @@ fun ChatScreen(
                 ) {
                     items(
                         items = messages,
-                        // 包含内容变化信息的 key，确保内容更新时触发重组
+                        // 包含 messagesVersion 和 reasoning 內容的 key，確保每次流式更新都觸發重組
                         key = { message ->
-                            val reasoningLength = message.parts.filterIsInstance<com.example.smartadvisor.model.MessagePart.Reasoning>()
-                                .firstOrNull()?.reasoning?.length ?: 0
-                            "${message.id}_${message.parts.size}_$reasoningLength"
+                            val reasoningPart = message.parts.filterIsInstance<com.example.smartadvisor.model.MessagePart.Reasoning>()
+                                .firstOrNull()
+                            val reasoningLength = reasoningPart?.reasoning?.length ?: 0
+                            val reasoningHash = reasoningPart?.reasoning?.hashCode() ?: 0
+                            // 包含 messagesVersion、reasoning 長度和 hash 以確保每次版本更新都重新計算 key
+                            "${message.id}_v${messagesVersion}_len${reasoningLength}_h${reasoningHash}"
                         }
                     ) { message ->
-                        // 添加日志来调试
-                        val reasoningPart = message.parts.filterIsInstance<com.example.smartadvisor.model.MessagePart.Reasoning>().firstOrNull()
-                        android.util.Log.d("ChatScreen", "Rendering message ${message.id}, reasoning length: ${reasoningPart?.reasoning?.length ?: 0}")
-
                         MessageBubble(message = message)
                     }
-                    
+
                     // Show loading indicator when generating
                     if (isGenerating) {
                         item {

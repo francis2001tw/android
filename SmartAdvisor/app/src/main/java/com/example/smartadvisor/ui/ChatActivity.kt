@@ -8,8 +8,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import com.example.smartadvisor.ui.screen.ChatScreen
+import com.example.smartadvisor.ui.screen.DebugLogScreen
 import com.example.smartadvisor.ui.theme.SmartAdvisorTheme
 import com.example.smartadvisor.util.LogManager
 
@@ -24,11 +26,21 @@ class ChatActivity : ComponentActivity() {
 
         setContent {
             SmartAdvisorTheme {
+                var showDebugLog by remember { mutableStateOf(false) }
+
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    ChatScreen()
+                    if (showDebugLog) {
+                        DebugLogScreen(
+                            onNavigateBack = { showDebugLog = false }
+                        )
+                    } else {
+                        ChatScreen(
+                            onNavigateToDebugLog = { showDebugLog = true }
+                        )
+                    }
                 }
             }
         }
