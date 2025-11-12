@@ -137,6 +137,9 @@ suspend fun runDeepThinkingChat(chatService: UniversalChatServiceImpl, conversat
     
     chatService.generateResponseStream(conversationId).collect { chunk ->
         when (chunk) {
+            is GenerationChunk.StreamTarget -> {
+                // CLI demo doesn't need to do anything; UI uses this to bind overlay
+            }
             is GenerationChunk.ThinkingChunk -> {
                 if (thinkingContent.isEmpty()) {
                     println("🧠 思考中...")

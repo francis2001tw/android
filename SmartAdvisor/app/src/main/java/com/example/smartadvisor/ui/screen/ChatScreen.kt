@@ -39,12 +39,31 @@ fun ChatScreen(
     viewModel: ChatViewModel = viewModel(),
     onNavigateToDebugLog: () -> Unit = {}
 ) {
-    // 使用 collectAsState() 代替手動 LaunchedEffect + collect
-    // 這樣可以確保每次 Flow emit 都會觸發 recomposition
-    val messages by viewModel.messages.collectAsState(initial = emptyList())
+    // 使用 collectAsState() 收集消息列表
+    // 注意：由於 Message 是 data class，collectAsState 會使用 equals() 比較
+    // 但我們已經在 ViewModel 中使用 messagesVersion 來強制更新
+    val messagesRaw by viewModel.messages.collectAsState(initial = emptyList())
     val messagesVersion by viewModel.messagesVersion.collectAsState(initial = 0)
+
+    // 使用 derivedStateOf 結合 messagesVersion 來強制重組
+    // 每次 messagesVersion 變化時，都會創建新的 messages 引用
+    val messages by remember {
+        derivedStateOf {
+            // 添加 messagesVersion 作為依賴，確保版本變化時重新計算
+            android.util.Log.d("ChatScreen", "📊 derivedStateOf: version=$messagesVersion, messages=${messagesRaw.size}")
+            messagesRaw
+        }
+    }
     val isGenerating by viewModel.isGenerating.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
+    val thinkingOverlay by viewModel.thinkingOverlay.collectAsState()
+
+    // Debug: Log overlay changes
+    LaunchedEffect(thinkingOverlay) {
+        thinkingOverlay.forEach { (messageId, content) ->
+            android.util.Log.d("ChatScreen", "📊 Overlay for $messageId: ${content.length} chars")
+        }
+    }
 
     // 添加 log 來追蹤收集到的值
     LaunchedEffect(messages.size, messagesVersion) {
@@ -187,17 +206,14 @@ fun ChatScreen(
                 ) {
                     items(
                         items = messages,
-                        // 包含 messagesVersion 和 reasoning 內容的 key，確保每次流式更新都觸發重組
-                        key = { message ->
-                            val reasoningPart = message.parts.filterIsInstance<com.example.smartadvisor.model.MessagePart.Reasoning>()
-                                .firstOrNull()
-                            val reasoningLength = reasoningPart?.reasoning?.length ?: 0
-                            val reasoningHash = reasoningPart?.reasoning?.hashCode() ?: 0
-                            // 包含 messagesVersion、reasoning 長度和 hash 以確保每次版本更新都重新計算 key
-                            "${message.id}_v${messagesVersion}_len${reasoningLength}_h${reasoningHash}"
-                        }
+                        // 只使用 message.id 作為 key，讓 Compose 自動檢測 message 對象的變化
+                        // 不要在 key 中包含內容相關的信息，否則會導致 LazyColumn 認為是新項目
+                        key = { message -> message.id }
                     ) { message ->
-                        MessageBubble(message = message)
+                        MessageBubble(
+                            message = message,
+                            thinkingOverlay = thinkingOverlay[message.id]
+                        )
                     }
 
                     // Show loading indicator when generating

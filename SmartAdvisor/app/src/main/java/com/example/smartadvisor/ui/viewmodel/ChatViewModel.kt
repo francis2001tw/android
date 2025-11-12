@@ -65,10 +65,14 @@ class ChatViewModel : ViewModel() {
     
     private val _isGenerating = MutableStateFlow(false)
     val isGenerating: StateFlow<Boolean> = _isGenerating.asStateFlow()
-    
+
+    // 實時 DeepThinking 覆蓋層（messageId -> 累積內容）
+    private val _thinkingOverlay = MutableStateFlow<Map<String, String>>(emptyMap())
+    val thinkingOverlay: StateFlow<Map<String, String>> = _thinkingOverlay.asStateFlow()
+
     private val _generationChunks = MutableSharedFlow<GenerationChunk>()
     val generationChunks: SharedFlow<GenerationChunk> = _generationChunks.asSharedFlow()
-    
+
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
     
@@ -171,22 +175,102 @@ class ChatViewModel : ViewModel() {
                 _isGenerating.value = true
                 android.util.Log.d("ChatViewModel", "🚀 Starting generation for conversation: $conversationId")
 
+                var targetMsgId: String? = null
+                var pendingBuffer: StringBuilder? = null
+
                 chatService.generateResponseStream(conversationId).collect { chunk ->
                     android.util.Log.d("ChatViewModel", "📦 Received chunk: ${chunk::class.simpleName}")
                     _generationChunks.emit(chunk)
 
                     when (chunk) {
+                        is GenerationChunk.StreamTarget -> {
+                            targetMsgId = chunk.messageId
+                            android.util.Log.d("ChatViewModel", "🎯 StreamTarget received: $targetMsgId")
+                            // 預先初始化 overlay，立刻進入 loading 狀態（顯示等待文案）
+                            val currentOverlay = _thinkingOverlay.value
+                            val newOverlay = currentOverlay.toMutableMap().apply {
+                                this[targetMsgId!!] = this[targetMsgId!!] ?: ""
+                            }
+                            _thinkingOverlay.value = newOverlay
+
+                            // 如果在拿到 messageId 前已經暫存了內容，立即回放
+                            pendingBuffer?.let { buf ->
+                                val delta = buf.toString()
+                                if (delta.isNotEmpty()) {
+                                    val overlayWithBuffer = _thinkingOverlay.value.toMutableMap().apply {
+                                        val prev = this[targetMsgId!!] ?: ""
+                                        this[targetMsgId!!] = prev + delta
+                                    }
+                                    _thinkingOverlay.value = overlayWithBuffer
+                                    android.util.Log.d("ChatViewModel", "🔄 Replayed buffered content: ${delta.length} chars")
+                                }
+                                pendingBuffer = null
+                            }
+                        }
                         is GenerationChunk.ThinkingChunk -> {
-                            android.util.Log.d("ChatViewModel", "💭 ThinkingChunk: ${chunk.content.length} chars")
+                            val id = targetMsgId ?: _currentConversation.value
+                                ?.getCurrentMessages()
+                                ?.lastOrNull()
+                                ?.id
+
+                            val content = chunk.content
+                            if (id != null) {
+                                // 將 chunk 內容累加到 overlay（接多少顯示多少）
+                                val currentOverlay = _thinkingOverlay.value
+                                val prev = currentOverlay[id] ?: ""
+                                val newContent = prev + content
+                                val newOverlay = currentOverlay.toMutableMap().apply {
+                                    this[id] = newContent
+                                }
+                                _thinkingOverlay.value = newOverlay
+                                android.util.Log.d("ChatViewModel", "🧠 ThinkingChunk: +${content.length} chars, overlay now ${newContent.length} chars for $id")
+                            } else {
+                                //  尚未獲取到 messageId，先暫存，待 StreamTarget 到達後回放
+                                if (pendingBuffer == null) pendingBuffer = StringBuilder()
+                                pendingBuffer!!.append(content)
+                                android.util.Log.w("ChatViewModel", "⏳ Buffering first chunks (${content.length} chars) until messageId is known")
+                            }
+                        }
+                        is GenerationChunk.ThinkingComplete -> {
+                            val id = targetMsgId ?: _currentConversation.value
+                                ?.getCurrentMessages()
+                                ?.lastOrNull()
+                                ?.id
+                            if (id != null) {
+                                val newOverlay = _thinkingOverlay.value.toMutableMap()
+                                newOverlay.remove(id)
+                                _thinkingOverlay.value = newOverlay
+                                android.util.Log.d("ChatViewModel", "🧹 Cleared overlay for $id (ThinkingComplete)")
+                            }
                         }
                         is GenerationChunk.ResponseComplete -> {
                             android.util.Log.d("ChatViewModel", "✅ ResponseComplete")
                             _isGenerating.value = false
+                            val id = targetMsgId ?: _currentConversation.value
+                                ?.getCurrentMessages()
+                                ?.lastOrNull()
+                                ?.id
+                            if (id != null) {
+                                val newOverlay = _thinkingOverlay.value.toMutableMap()
+                                newOverlay.remove(id)
+                                _thinkingOverlay.value = newOverlay
+                                android.util.Log.d("ChatViewModel", "🧹 Cleared overlay for $id (ResponseComplete)")
+                            }
                         }
                         is GenerationChunk.Error -> {
                             android.util.Log.e("ChatViewModel", "❌ Error: ${chunk.error.message}")
                             _isGenerating.value = false
                             _errorMessage.value = "Generation error: ${chunk.error.message}"
+                            val id = targetMsgId ?: _currentConversation.value
+                                ?.getCurrentMessages()
+                                ?.lastOrNull()
+                                ?.id
+                            if (id != null) {
+                                val newOverlay = _thinkingOverlay.value.toMutableMap()
+                                newOverlay.remove(id)
+                                _thinkingOverlay.value = newOverlay
+                                android.util.Log.d("ChatViewModel", "🧹 Cleared overlay for $id (Error)")
+                            }
                         }
                         else -> {
                             android.util.Log.d("ChatViewModel", "Other chunk: ${chunk::class.simpleName}")

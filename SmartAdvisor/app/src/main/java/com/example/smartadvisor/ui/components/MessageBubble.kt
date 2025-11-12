@@ -63,6 +63,7 @@ import kotlin.time.DurationUnit
 @Composable
 fun MessageBubble(
     message: Message,
+    thinkingOverlay: String? = null,
     modifier: Modifier = Modifier
 ) {
     val isUser = message.role == MessageRole.USER
@@ -83,14 +84,16 @@ fun MessageBubble(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // First, display Reasoning parts (full width, outside bubble)
-        reasoningParts.forEachIndexed { index, reasoning ->
-            // Use key to force recomposition when reasoning content changes
-            // Include reasoning length in key to ensure updates trigger recomposition
-            key(message.id, index, reasoning.reasoning.length, reasoning.reasoning.hashCode(), reasoning.finishedAt) {
-                DeepThinkingCard(
-                    reasoning = reasoning,
-                    modifier = Modifier.fillMaxWidth()
-                )
+        // 不使用 key()，讓 Compose 自動檢測 reasoning 對象的變化
+        reasoningParts.forEach { reasoning ->
+            DeepThinkingCard(
+                reasoning = reasoning,
+                overlay = thinkingOverlay,
+                modifier = Modifier.fillMaxWidth()
+            )
+            // Debug: Log overlay being passed to DeepThinkingCard
+            LaunchedEffect(thinkingOverlay) {
+                android.util.Log.d("MessageBubble", "🎯 Passing overlay to DeepThinkingCard for ${message.id}: ${thinkingOverlay?.length ?: 0} chars")
             }
         }
 
@@ -206,19 +209,23 @@ enum class ReasoningCardState(val expanded: Boolean) {
 @Composable
 fun DeepThinkingCard(
     reasoning: MessagePart.Reasoning,
+    overlay: String? = null,
     modifier: Modifier = Modifier,
     fadeHeight: Float = 64f
 ) {
     var expandState by remember { mutableStateOf(ReasoningCardState.Preview) }
     val scrollState = rememberScrollState()
-    val loading = reasoning.finishedAt == null
+
+    // When overlay is present, we are in streaming mode regardless of finishedAt
+    val displayedText = overlay ?: reasoning.reasoning
+    val loading = overlay != null || reasoning.finishedAt == null
 
     // Debug: Log reasoning content length EVERY time this composable is called
-    android.util.Log.d("DeepThinkingCard", "🧠 DeepThinkingCard recompose: ${reasoning.reasoning.length} chars, loading=$loading")
+    android.util.Log.d("DeepThinkingCard", "🧠 DeepThinkingCard recompose: ${displayedText.length} chars, loading=$loading")
 
     // Auto-expand when loading, auto-scroll to bottom
-    // 使用 LaunchedEffect 觀察 reasoning.reasoning 的變化（與 rikkahub 一致）
-    LaunchedEffect(reasoning.reasoning, loading) {
+    // Observe displayedText changes
+    LaunchedEffect(displayedText, loading) {
         if (loading) {
             if (!expandState.expanded) {
                 expandState = ReasoningCardState.Preview
@@ -313,7 +320,7 @@ fun DeepThinkingCard(
 
                     // Progress indicator: character count or waiting message
                     if (loading) {
-                        if (reasoning.reasoning.isEmpty()) {
+                        if (displayedText.isEmpty()) {
                             Text(
                                 text = "Waiting for response...",
                                 style = MaterialTheme.typography.labelSmall,
@@ -322,14 +329,14 @@ fun DeepThinkingCard(
                             )
                         } else {
                             Text(
-                                text = "${reasoning.reasoning.length} characters generated...",
+                                text = "${displayedText.length} characters generated...",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             )
                         }
-                    } else if (reasoning.reasoning.isNotEmpty()) {
+                    } else if (displayedText.isNotEmpty()) {
                         Text(
-                            text = "Completed • ${reasoning.reasoning.length} characters",
+                            text = "Completed • ${displayedText.length} characters",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
@@ -367,9 +374,8 @@ fun DeepThinkingCard(
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                 )
 
-                // 使用 key 確保內容變化時重組
-                key(reasoning.reasoning) {
-                    Column(
+                // 移除 key，直接依賴 reasoning 對象的變化觸發重組
+                Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .let {
@@ -405,7 +411,7 @@ fun DeepThinkingCard(
                             }
                             .padding(8.dp)
                     ) {
-                        if (reasoning.reasoning.isEmpty() && loading) {
+                        if (displayedText.isEmpty() && loading) {
                             // 在第一個回傳數據之前顯示 "Waiting for response..."
                             Row(
                                 modifier = Modifier
@@ -430,7 +436,7 @@ fun DeepThinkingCard(
                             // 顯示實時累加的推理內容
                             SelectionContainer {
                                 Text(
-                                    text = reasoning.reasoning,
+                                    text = displayedText,
                                     style = MaterialTheme.typography.bodyMedium.copy(
                                         lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * 1.5
                                     ),
@@ -439,7 +445,6 @@ fun DeepThinkingCard(
                             }
                         }
                     }
-                }
             }
         }
     }

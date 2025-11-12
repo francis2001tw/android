@@ -76,41 +76,61 @@ class DeepSeekProvider(
             // 处理流式响应
             val channel: ByteReadChannel = response.bodyAsChannel()
             var chunkIndex = 0
-            val buffer = StringBuilder()
+            var totalReasoningChars = 0
+            var totalContentChars = 0
+
+            Log.d("DeepSeekProvider", "🌊 Starting to read streaming response...")
 
             while (!channel.isClosedForRead) {
                 val line = channel.readUTF8Line() ?: break
 
                 if (line.isEmpty()) continue
 
-                Log.d("DeepSeekProvider", "Received line: $line")
+                // 只记录非空行的前100个字符
+                if (line.length > 100) {
+                    Log.d("DeepSeekProvider", "📥 Received line (${line.length} chars): ${line.take(100)}...")
+                } else {
+                    Log.d("DeepSeekProvider", "📥 Received line: $line")
+                }
 
                 if (line.startsWith("data: ")) {
                     val data = line.removePrefix("data: ").trim()
 
                     if (data == "[DONE]") {
-                        Log.d("DeepSeekProvider", "Stream completed")
+                        Log.d("DeepSeekProvider", "✅ Stream completed - Total chunks: $chunkIndex, Reasoning: $totalReasoningChars chars, Content: $totalContentChars chars")
                         break
                     }
 
                     try {
-                        val chunk = parseChunk(data, chunkIndex++)
-                        Log.d("DeepSeekProvider", "Emitting chunk #$chunkIndex with ${chunk.choices.size} choices")
+                        val chunk = parseChunk(data, chunkIndex)
+                        chunkIndex++
+
+                        // 统计内容
                         chunk.choices.firstOrNull()?.delta?.parts?.forEach { part ->
                             when (part) {
-                                is MessagePart.Reasoning -> Log.d("DeepSeekProvider", "  - Reasoning: ${part.reasoning.take(50)}")
-                                is MessagePart.Text -> Log.d("DeepSeekProvider", "  - Text: ${part.text.take(50)}")
-                                else -> Log.d("DeepSeekProvider", "  - Other: ${part::class.simpleName}")
+                                is MessagePart.Reasoning -> {
+                                    totalReasoningChars += part.reasoning.length
+                                    Log.d("DeepSeekProvider", "  🧠 Reasoning chunk: +${part.reasoning.length} chars (total: $totalReasoningChars)")
+                                }
+                                is MessagePart.Text -> {
+                                    totalContentChars += part.text.length
+                                    Log.d("DeepSeekProvider", "  💬 Text chunk: +${part.text.length} chars (total: $totalContentChars)")
+                                }
+                                else -> Log.d("DeepSeekProvider", "  ❓ Other: ${part::class.simpleName}")
                             }
                         }
+
+                        // 发射 chunk
                         emit(chunk)
+                        Log.d("DeepSeekProvider", "  ✅ Chunk #$chunkIndex emitted")
                     } catch (e: Exception) {
-                        Log.e("DeepSeekProvider", "Error parsing chunk: ${e.message}", e)
+                        Log.e("DeepSeekProvider", "❌ Error parsing chunk #$chunkIndex: ${e.message}", e)
+                        Log.e("DeepSeekProvider", "   Raw data: $data")
                     }
                 }
             }
 
-            Log.d("DeepSeekProvider", "Total chunks received: $chunkIndex")
+            Log.d("DeepSeekProvider", "🏁 Stream reading finished - Total chunks: $chunkIndex")
 
         } catch (e: Exception) {
             Log.e("DeepSeekProvider", "Stream error: ${e.message}", e)
@@ -147,8 +167,11 @@ class DeepSeekProvider(
         params: TextGenerationParams,
         stream: Boolean
     ): JsonObject {
+        val modelId = params.model.modelId
+        Log.d("DeepSeekProvider", "🎯 Building request for model: $modelId")
+
         return buildJsonObject {
-            put("model", params.model.modelId)
+            put("model", modelId)
             put("messages", buildJsonArray {
                 messages.forEach { message ->
                     add(buildJsonObject {
@@ -169,51 +192,72 @@ class DeepSeekProvider(
             params.temperature?.let { put("temperature", it) }
             params.topP?.let { put("top_p", it) }
             params.maxTokens?.let { put("max_tokens", it) }
+
+            // Log the request details
+            Log.d("DeepSeekProvider", "   Model: $modelId")
+            Log.d("DeepSeekProvider", "   Stream: $stream")
+            Log.d("DeepSeekProvider", "   Messages: ${messages.size}")
+            Log.d("DeepSeekProvider", "   Max tokens: ${params.maxTokens}")
         }
     }
     
     private fun parseChunk(jsonStr: String, index: Int): MessageChunk {
         val json = Json.parseToJsonElement(jsonStr).jsonObject
         val choices = json["choices"]?.jsonArray ?: JsonArray(emptyList())
-        
+
         val messageChoices = choices.map { choice ->
             val choiceObj = choice.jsonObject
             val delta = choiceObj["delta"]?.jsonObject
-            
+
             val parts = mutableListOf<MessagePart>()
-            
-            // 解析文本内容
-            delta?.get("content")?.jsonPrimitive?.contentOrNull?.let { content ->
-                if (content.isNotBlank()) {
-                    parts.add(MessagePart.Text(content))
-                }
+
+            // DeepSeek 的 reasoning_content 字段（优先处理，因为它先于 content 返回）
+            // 根据 DeepSeek API 文档：chunk.choices[0].delta.reasoning_content
+            val reasoningContent = delta?.get("reasoning_content")?.jsonPrimitive?.contentOrNull
+            if (reasoningContent != null && reasoningContent.isNotBlank()) {
+                parts.add(MessagePart.Reasoning(
+                    reasoning = reasoningContent,
+                    createdAt = Clock.System.now(),
+                    finishedAt = null
+                ))
+                Log.d("DeepSeekProvider", "  ✅ Parsed reasoning_content: ${reasoningContent.take(50)}...")
             }
-            
-            // DeepSeek 的 reasoning_content 字段（如果支持）
-            delta?.get("reasoning_content")?.jsonPrimitive?.contentOrNull?.let { reasoning ->
-                if (reasoning.isNotBlank()) {
-                    parts.add(MessagePart.Reasoning(
-                        reasoning = reasoning,
-                        createdAt = Clock.System.now(),
-                        finishedAt = null
-                    ))
-                }
+
+            // 解析文本内容（最终答案）
+            val textContent = delta?.get("content")?.jsonPrimitive?.contentOrNull
+            if (textContent != null && textContent.isNotBlank()) {
+                parts.add(MessagePart.Text(textContent))
+                Log.d("DeepSeekProvider", "  ✅ Parsed content: ${textContent.take(50)}...")
             }
-            
+
+            // 检查是否完成
+            val finishReason = choiceObj["finish_reason"]?.jsonPrimitive?.contentOrNull
+            if (finishReason != null) {
+                Log.d("DeepSeekProvider", "  🏁 Finish reason: $finishReason")
+                // 如果有 reasoning part，标记为完成
+                val updatedParts = parts.map { part ->
+                    if (part is MessagePart.Reasoning) {
+                        part.copy(finishedAt = Clock.System.now())
+                    } else part
+                }
+                parts.clear()
+                parts.addAll(updatedParts)
+            }
+
             val message = if (parts.isNotEmpty()) {
                 Message(
                     role = MessageRole.ASSISTANT,
                     parts = parts
                 )
             } else null
-            
+
             MessageChoice(
                 index = choiceObj["index"]?.jsonPrimitive?.int ?: 0,
                 delta = message,
-                finishReason = choiceObj["finish_reason"]?.jsonPrimitive?.contentOrNull
+                finishReason = finishReason
             )
         }
-        
+
         val usage = json["usage"]?.jsonObject?.let { usageObj ->
             TokenUsage(
                 promptTokens = usageObj["prompt_tokens"]?.jsonPrimitive?.int ?: 0,
@@ -221,7 +265,7 @@ class DeepSeekProvider(
                 totalTokens = usageObj["total_tokens"]?.jsonPrimitive?.int ?: 0
             )
         }
-        
+
         return MessageChunk(
             id = json["id"]?.jsonPrimitive?.content ?: "chunk-$index",
             model = json["model"]?.jsonPrimitive?.content ?: "",

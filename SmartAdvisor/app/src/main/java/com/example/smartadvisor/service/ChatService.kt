@@ -125,6 +125,9 @@ interface UniversalChatService {
  * 生成块 (流式输出)
  */
 sealed class GenerationChunk {
+    // 在服务端创建 AI 消息后立即发出，供 UI 绑定 overlay 到确切 messageId
+    data class StreamTarget(val messageId: String) : GenerationChunk()
+
     data class ThinkingChunk(val content: String) : GenerationChunk()
     data class ThinkingComplete(val totalContent: String) : GenerationChunk()
     data class ResponseChunk(val content: String) : GenerationChunk()

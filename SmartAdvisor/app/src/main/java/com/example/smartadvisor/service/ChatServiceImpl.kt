@@ -20,13 +20,13 @@ class UniversalChatServiceImpl(
     private val settingsStore: SettingsStore,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 ) : UniversalChatService {
-    
+
     // 活跃对话缓存
     private val activeConversations = mutableMapOf<String, MutableStateFlow<Conversation>>()
-    
+
     // 生成任务管理
     private val generationJobs = mutableMapOf<String, Job>()
-    
+
     override suspend fun createConversation(
         assistantId: String,
         initialMessages: List<Message>
@@ -35,74 +35,74 @@ class UniversalChatServiceImpl(
             assistantId = assistantId,
             messageNodes = initialMessages.map { MessageNode.of(it) }
         )
-        
+
         conversationRepository.save(conversation)
         activeConversations[conversation.id] = MutableStateFlow(conversation)
-        
+
         logger.info { "Created conversation: ${conversation.id}" }
         return conversation
     }
-    
+
     override suspend fun loadConversation(conversationId: String): Conversation? {
         return conversationRepository.load(conversationId)?.also { conversation ->
             activeConversations[conversationId] = MutableStateFlow(conversation)
         }
     }
-    
+
     override fun observeConversation(conversationId: String): Flow<Conversation> {
         return activeConversations[conversationId]?.asStateFlow()
             ?: flow { emit(loadConversation(conversationId) ?: error("Conversation not found")) }
     }
-    
+
     override suspend fun saveConversation(conversation: Conversation) {
         conversationRepository.save(conversation)
         activeConversations[conversation.id]?.value = conversation
     }
-    
+
     override suspend fun deleteConversation(conversationId: String) {
         conversationRepository.delete(conversationId)
         activeConversations.remove(conversationId)
         generationJobs[conversationId]?.cancel()
         generationJobs.remove(conversationId)
     }
-    
+
     override fun searchConversations(query: String, assistantId: String?): Flow<List<Conversation>> {
         return conversationRepository.search(query, assistantId)
     }
-    
+
     override suspend fun sendMessage(
         conversationId: String,
         content: List<MessagePart>,
         autoGenerate: Boolean
     ): Result<Message> = runCatching {
         logger.info { "Sending message to conversation: $conversationId" }
-        
+
         // 1. 验证输入
         require(content.isNotEmpty()) { "Message content cannot be empty" }
-        
+
         // 2. 创建用户消息
         val userMessage = Message(
             role = MessageRole.USER,
             parts = content,
             createdAt = Clock.System.now()
         )
-        
+
         // 3. 添加到对话
         val conversation = getConversation(conversationId)
         val updatedConversation = conversation.addMessage(userMessage)
         updateConversation(conversationId, updatedConversation)
-        
+
         // 4. 保存对话
         saveConversation(updatedConversation)
-        
+
         // 5. 自动生成响应
         if (autoGenerate) {
             launchGeneration(conversationId)
         }
-        
+
         userMessage
     }
-    
+
     override fun generateResponseStream(
         conversationId: String,
         params: TextGenerationParams?
@@ -150,6 +150,10 @@ class UniversalChatServiceImpl(
         val conversationWithAI = conversation.addMessage(aiMessage)
         updateConversation(conversationId, conversationWithAI)
         android.util.Log.d("ChatServiceImpl", "✅ Initial AI message added")
+
+        // 通知 UI 目标 messageId，用于第一字节即可绑定并展示
+        emit(GenerationChunk.StreamTarget(aiMessage.id))
+        android.util.Log.d("ChatServiceImpl", "📌 Emitted StreamTarget: ${aiMessage.id}")
 
         // 立即发送 ThinkingChunk 事件，触发 DeepThinking 动画显示
         emit(GenerationChunk.ThinkingChunk(""))
@@ -237,28 +241,28 @@ class UniversalChatServiceImpl(
         logger.error(error) { "Error generating response" }
         emit(GenerationChunk.Error(error))
     }
-    
+
     override suspend fun generateResponse(
         conversationId: String,
         params: TextGenerationParams?
     ): Result<Message> = runCatching {
         var lastMessage: Message? = null
-        
+
         generateResponseStream(conversationId, params).collect { chunk ->
             if (chunk is GenerationChunk.ResponseComplete) {
                 lastMessage = chunk.message
             }
         }
-        
+
         lastMessage ?: error("No response generated")
     }
-    
+
     override fun cancelGeneration(conversationId: String) {
         generationJobs[conversationId]?.cancel()
         generationJobs.remove(conversationId)
         logger.info { "Cancelled generation for conversation: $conversationId" }
     }
-    
+
     override suspend fun regenerateMessage(
         conversationId: String,
         messageId: String
@@ -266,7 +270,7 @@ class UniversalChatServiceImpl(
         // TODO: Implement regeneration logic
         return Result.failure(NotImplementedError("Regenerate not implemented"))
     }
-    
+
     override suspend fun editMessage(
         conversationId: String,
         messageId: String,
@@ -275,30 +279,30 @@ class UniversalChatServiceImpl(
         // TODO: Implement edit logic
         return Result.failure(NotImplementedError("Edit not implemented"))
     }
-    
+
     override suspend fun deleteMessage(conversationId: String, messageId: String) {
         // TODO: Implement delete logic
     }
-    
+
     override suspend fun generateTitle(conversationId: String): String {
         val conversation = getConversation(conversationId)
         if (conversation.title.isNotBlank()) return conversation.title
-        
+
         val messages = conversation.getCurrentMessages().take(3)
         val summary = messages.joinToString(" ") { it.toText().take(50) }
         val title = "对话: ${summary.take(30)}..."
-        
+
         val updatedConversation = conversation.copy(title = title)
         saveConversation(updatedConversation)
-        
+
         return title
     }
-    
+
     override suspend fun generateSuggestions(conversationId: String): List<String> {
         // TODO: Implement suggestion generation
         return emptyList()
     }
-    
+
     override fun getTokenUsage(conversationId: String): Flow<TokenUsage> = flow {
         val conversation = getConversation(conversationId)
         val totalUsage = conversation.getCurrentMessages()
@@ -306,14 +310,14 @@ class UniversalChatServiceImpl(
             .fold(TokenUsage()) { acc, usage -> acc + usage }
         emit(totalUsage)
     }
-    
+
     // ========== Private Helper Methods ==========
-    
+
     private fun getConversation(conversationId: String): Conversation {
         return activeConversations[conversationId]?.value
             ?: error("Conversation not found: $conversationId")
     }
-    
+
     private fun updateConversation(conversationId: String, conversation: Conversation) {
         val flow = activeConversations[conversationId]
         if (flow != null) {
